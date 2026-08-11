@@ -328,6 +328,7 @@ if RNET_AVAILABLE:
             self._client = RnetClient(
                 emulation=rnet_emulation,
                 timeout=timeout,
+                read_timeout=settings.request_read_timeout,
                 proxies=proxies,
                 allow_redirects=follow_redirects,
             )

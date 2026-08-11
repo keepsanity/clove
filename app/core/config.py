@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     """Application settings with environment variable and JSON config support."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=Path(__file__).parent.parent.parent / ".env",
         env_ignore_empty=True,
         extra="ignore",
     )
@@ -152,6 +152,7 @@ class Settings(BaseSettings):
 
     # Request settings
     request_timeout: int = Field(default=60, env="REQUEST_TIMEOUT")
+    request_read_timeout: int = Field(default=600, env="REQUEST_READ_TIMEOUT")
     request_retries: int = Field(default=3, env="REQUEST_RETRIES")
     request_retry_interval: int = Field(default=1, env="REQUEST_RETRY_INTERVAL")
 
@@ -242,7 +243,7 @@ class Settings(BaseSettings):
         description="OAuth authorization endpoint URL template",
     )
     oauth_token_url: str = Field(
-        default="https://console.anthropic.com/v1/oauth/token",
+        default="https://api.anthropic.com/v1/oauth/token",
         env="OAUTH_TOKEN_URL",
         description="OAuth token exchange endpoint URL",
     )
