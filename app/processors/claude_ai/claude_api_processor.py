@@ -5,6 +5,7 @@ from app.core.http_client import (
 )
 from datetime import datetime, timedelta, UTC
 from typing import Dict
+import json
 from loguru import logger
 from fastapi.responses import StreamingResponse
 
@@ -89,9 +90,17 @@ class ClaudeAPIProcessor(BaseProcessor):
                 )
 
             with account:
-                request_json = context.messages_api_request.model_dump_json(
+                request_dict = context.messages_api_request.model_dump(
                     exclude_none=True
                 )
+                if request_dict.get("top_k") == 0:
+                    del request_dict["top_k"]
+                if request_dict.get("stop_sequences") == []:
+                    del request_dict["stop_sequences"]
+                request_dict.pop("top_p", None)
+                request_dict.pop("top_k", None)
+                self._strip_cache_control(request_dict)
+                request_json = json.dumps(request_dict)
                 headers = self._prepare_headers(
                     account.oauth_token.access_token,
                     context.messages_api_request,
@@ -216,6 +225,20 @@ class ClaudeAPIProcessor(BaseProcessor):
         else:
             request.system = [system_message]
 
+    def _strip_cache_control(self, request_dict: dict) -> None:
+        """Remove cache_control from all content blocks (OAuth API does not support prompt caching)."""
+        system = request_dict.get("system", [])
+        if isinstance(system, list):
+            for block in system:
+                if isinstance(block, dict):
+                    block.pop("cache_control", None)
+        for message in request_dict.get("messages", []):
+            content = message.get("content", [])
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict):
+                        block.pop("cache_control", None)
+
     def _prepare_headers(
         self,
         access_token: str,
@@ -224,20 +247,26 @@ class ClaudeAPIProcessor(BaseProcessor):
     ) -> Dict[str, str]:
         """Prepare headers for Claude API request.
 
-        Beta headers: oauth 是 OAuth 认证必需的。
-        effort 和 structured-outputs 已 GA，不再需要 beta header。
-        客户端的 anthropic-beta header 会被透传（去重合并）。
+        Beta headers: oauth는 OAuth 인증에 필수입니다.
+        effort와 structured-outputs는 이미 GA되어 더 이상 beta header가 필요하지 않습니다.
+        클라이언트의 anthropic-beta header는 그대로 전달됩니다(중복 제거 병합).
         """
-        # oauth beta 是 OAuth 认证必需的
+        # OAuth 인증과 호환되지 않는 beta 헤더 (long context 관련)
+        oauth_incompatible_betas = {
+            "output-128k-2025-02-19",
+            "context-1m-2025-08-07",
+        }
+
+        # oauth beta는 OAuth 인증에 필수입니다
         beta_features = ["oauth-2025-04-20"]
 
-        # 透传客户端 anthropic-beta header，与内部 beta 去重合并
+        # 클라이언트의 anthropic-beta header를 전달하며, 내부 beta와 중복 제거 병합 (호환 불가 항목은 제외)
         if original_request:
             client_beta = original_request.headers.get("anthropic-beta", "")
             if client_beta:
                 for beta in client_beta.split(","):
                     beta = beta.strip()
-                    if beta and beta not in beta_features:
+                    if beta and beta not in beta_features and beta not in oauth_incompatible_betas:
                         beta_features.append(beta)
 
         return {
